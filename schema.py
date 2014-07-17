@@ -42,7 +42,7 @@ class SchemaDescriptor(object):
         self.schema = schema
 
     @abc.abstractmethod
-    def validate(self, data):
+    def coerce(self, data):
         """Validates the data according to the descriptor's rules.
 
         If valid, return the data (plus any transformations necessary).
@@ -50,16 +50,21 @@ class SchemaDescriptor(object):
         """
         pass
 
-    # TODO: Coerce vs validate distinction
-    def coerce(self, data):
-        pass
+    def validate(self, data):
+        try:
+            self.coerce(data)
+        except ValueError:
+            return False
+        else:
+            return True
+
 
 class RegEx(SchemaDescriptor):
     def __init__(self, pattern, flags=0):
         self.pattern = pattern
         self.flags = flags
 
-    def validate(self, data):
+    def coerce(self, data):
         try:
             result = re.search(self.pattern, data, flags=self.flags)
         except (TypeError, ValueError):
@@ -81,7 +86,7 @@ class Email(RegEx):
 
 class Instance(SchemaDescriptor):
     typ = type
-    def validate(self, data):
+    def coerce(self, data):
         if isinstance(data, self.schema):
             return data
         else:
@@ -93,7 +98,7 @@ class Coerce(SchemaDescriptor):
             raise TypeError('Arguments to Coerce must be callable.')
         self.schema = schema
 
-    def validate(self, data):
+    def coerce(self, data):
         return self.schema(data)
 
 class Check(SchemaDescriptor):
@@ -102,7 +107,7 @@ class Check(SchemaDescriptor):
             raise TypeError('Arguments to Check must be callable.')
         self.schema = schema
 
-    def validate(self, data):
+    def coerce(self, data):
         if self.schema(data):
             return data
 
@@ -123,14 +128,14 @@ class List(SchemaDescriptor):
 
         self.schema = dispatch(schema[0])
 
-    def validate(self, data):
+    def coerce(self, data):
         if not isinstance(data, list):
             raise ValueError
 
         # TODO: schema_type property?
         new = []
         for item in data:
-            new.append(self.schema.validate(item))
+            new.append(self.schema.coerce(item))
 
         return new
 
@@ -141,7 +146,7 @@ class Map(SchemaDescriptor):
 
         self.schema = schema
 
-    def validate(self, data):
+    def coerce(self, data):
         if not isinstance(data, collections.MutableMapping):
             raise ValueError
 
@@ -150,7 +155,7 @@ class Map(SchemaDescriptor):
         for key, schema in self.schema.iteritems():
             val = data.get(key, EMPTY)
             schema = dispatch(schema)
-            new[key] = schema.validate(val)
+            new[key] = schema.coerce(val)
             keys.remove(key)
 
         if keys:
@@ -170,11 +175,11 @@ class Optional(SchemaDescriptor):
         self.schema = dispatch(schema)
         self.default = default
 
-    def validate(self, data):
+    def coerce(self, data):
         if data is EMPTY:
             return self.default
         else:
-            return self.schema.validate(data)
+            return self.schema.coerce(data)
 
 class OptionalString(Optional):
     def __init__(self, default):
@@ -184,9 +189,9 @@ class OptionalString(Optional):
         self.schema = dispatch(str)
         self.default = default
 
-    def validate(self, data):
+    def coerce(self, data):
         if data == '' or data is EMPTY:
             return self.default
         else:
-            return self.schema.validate(data)
+            return self.schema.coerce(data)
 
