@@ -41,7 +41,6 @@ class SchemaDescriptor(object):
 
         self.schema = schema
 
-    @abc.abstractmethod
     def coerce(self, data):
         """Validates the data according to the descriptor's rules.
 
@@ -51,12 +50,26 @@ class SchemaDescriptor(object):
         pass
 
     def validate(self, data):
+        """
+
+        :param data: Data to validate against schema.
+        :return:
+        """
         try:
             self.coerce(data)
         except ValueError:
             return False
         else:
             return True
+
+    def __and__(self, other):
+        return And(self, other)
+
+    def __or__(self, other):
+        return Or(self, other)
+
+    def __instancecheck__(self, instance):
+        return self.validate(instance)
 
 
 class RegEx(SchemaDescriptor):
@@ -79,6 +92,41 @@ class Email(RegEx):
     def __init__(self):
         self.pattern = '^[-0-9a-zA-Z.+_]+@[-0-9a-zA-Z.+_]+\.[a-zA-Z]+$'
         self.flags = 0
+
+#####################
+# LOGICAL OPERATORS #
+#####################
+
+class And(SchemaDescriptor):
+    def __init__(self, *schemas):
+        self.schemas = schemas
+
+    def __and__(self, other):
+        self.schemas.append(other)
+        return self
+
+    def coerce(self, data):
+        for schema in self.schemas:
+            data = schema.coerce(data)
+
+        return data
+
+class Or(SchemaDescriptor):
+    def __init__(self, *schemas):
+        self.schemas = schemas
+
+    def __or__(self, other):
+        self.schemas.append(other)
+        return self
+
+    def coerce(self, data):
+        for schema in self.schemas:
+            try:
+                data = schema.coerce(data)
+            except ValueError:
+                pass
+            else:
+                return data
 
 ##############
 # BASE CASES #
@@ -182,11 +230,13 @@ class Optional(SchemaDescriptor):
             return self.schema.coerce(data)
 
 class OptionalString(Optional):
+    """Validates missing values AND values
+    """
     def __init__(self, default):
         if default and not isinstance(default, basestring):
             raise ValueError("OptionalString requires a default string. {} is not a string.".format(default))
 
-        self.schema = dispatch(str)
+        self.schema = dispatch(default.__class.__)
         self.default = default
 
     def coerce(self, data):
